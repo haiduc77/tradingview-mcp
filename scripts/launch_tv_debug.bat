@@ -9,28 +9,18 @@ REM Kill existing TradingView instances
 taskkill /F /IM TradingView.exe >nul 2>&1
 timeout /t 2 /nobreak >nul
 
-REM Auto-detect TradingView install location
+REM Resolve the Windows Store / MSIX install location from the registered AppX package.
 set "TV_EXE="
-
-REM Check common install locations
-if exist "%LOCALAPPDATA%\TradingView\TradingView.exe" set "TV_EXE=%LOCALAPPDATA%\TradingView\TradingView.exe"
-if exist "%PROGRAMFILES%\TradingView\TradingView.exe" set "TV_EXE=%PROGRAMFILES%\TradingView\TradingView.exe"
-if exist "%PROGRAMFILES(x86)%\TradingView\TradingView.exe" set "TV_EXE=%PROGRAMFILES(x86)%\TradingView\TradingView.exe"
-
-REM Check MSIX / Windows Store installs
-if "%TV_EXE%"=="" (
-    for /f "tokens=*" %%i in ('dir /s /b "%PROGRAMFILES%\WindowsApps\TradingView*\TradingView.exe" 2^>nul') do set "TV_EXE=%%i"
-)
-if "%TV_EXE%"=="" (
-    for /f "tokens=*" %%i in ('where TradingView.exe 2^>nul') do set "TV_EXE=%%i"
+for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-AppxPackage -Name 'TradingView.Desktop*' | Select-Object -First 1 -ExpandProperty InstallLocation" 2^>nul`) do (
+    if exist "%%i\TradingView.exe" set "TV_EXE=%%i\TradingView.exe"
 )
 
 if "%TV_EXE%"=="" (
-    echo Error: TradingView not found.
-    echo Checked: %%LOCALAPPDATA%%\TradingView, %%PROGRAMFILES%%\TradingView, WindowsApps
+    echo Error: TradingView Desktop AppX package not found.
+    echo Expected an installed package matching: TradingView.Desktop*
     echo.
-    echo If installed elsewhere, run manually:
-    echo   "C:\path\to\TradingView.exe" --remote-debugging-port=%PORT%
+    echo Install TradingView Desktop from the Microsoft Store or verify:
+    echo   Get-AppxPackage -Name 'TradingView.Desktop*'
     exit /b 1
 )
 
