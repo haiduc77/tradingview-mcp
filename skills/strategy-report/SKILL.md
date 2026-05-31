@@ -10,7 +10,7 @@ You are generating a detailed performance report for a Pine Script strategy on T
 ## Step 1: Gather Data
 
 Collect all available performance data:
-1. `data_get_strategy_results` — overall metrics (net profit, win rate, profit factor, etc.)
+1. `data_get_strategy_results` — overall metrics (net profit, win rate, profit factor, etc.). Prefer the `normalized` numeric fields for calculations/ranking; `source: "strategy_tester_dom"` means the data came from live Strategy Tester DOM text, not a screenshot.
 2. `data_get_trades` — individual trade list (max 20)
 3. `data_get_equity` — equity curve data points
 4. `chart_get_state` — current symbol, timeframe, and studies on chart

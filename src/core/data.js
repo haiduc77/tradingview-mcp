@@ -8,6 +8,154 @@ const MAX_TRADES = 20;
 const CHART_API = KNOWN_PATHS.chartApi;
 const BARS_PATH = KNOWN_PATHS.mainSeriesBars;
 
+function parseReportNumber(value) {
+  if (value == null) return null;
+  const cleaned = String(value)
+    .replace(/\u2212/g, '-')
+    .replace(/[\u00a0\u202f,\s]/g, '')
+    .replace(/[%+]/g, '');
+  const match = cleaned.match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
+}
+
+function firstMetricLine(lines, label) {
+  const idx = lines.findIndex(line => line.toLowerCase() === label.toLowerCase());
+  if (idx === -1) return null;
+  for (let i = idx + 1; i < lines.length; i++) {
+    if (lines[i]) return lines[i];
+  }
+  return null;
+}
+
+function linesAfter(lines, label, count = 4) {
+  const idx = lines.findIndex(line => line.toLowerCase() === label.toLowerCase());
+  if (idx === -1) return [];
+  return lines.slice(idx + 1).filter(Boolean).slice(0, count);
+}
+
+function findAfterAny(lines, label, predicate, count = 4) {
+  for (let idx = 0; idx < lines.length; idx++) {
+    if (lines[idx].toLowerCase() !== label.toLowerCase()) continue;
+    const found = lines.slice(idx + 1).filter(Boolean).slice(0, count).find(predicate);
+    if (found) return found;
+  }
+  return null;
+}
+
+export function parseStrategyReportText(text) {
+  const lines = String(text || '')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const metrics = {};
+  const normalized = {};
+
+  const dateMatch = String(text || '').match(/[A-Z][a-z]{2,8}\s+\d{1,2},\s+\d{4}\s+\u2014\s+[A-Z][a-z]{2,8}\s+\d{1,2},\s+\d{4}/);
+  if (dateMatch) {
+    metrics['Date range'] = dateMatch[0];
+    normalized.date_range = dateMatch[0];
+  }
+
+  const totalPnl = linesAfter(lines, 'Total PnL', 3);
+  if (totalPnl.length > 0) {
+    const amount = totalPnl[0];
+    const currency = totalPnl[1] && /^[A-Z]{3}$/.test(totalPnl[1]) ? totalPnl[1] : null;
+    const pct = totalPnl.find(v => /%/.test(v));
+    metrics['Total PnL'] = currency ? `${amount} ${currency}` : amount;
+    normalized.total_pnl = parseReportNumber(amount);
+    if (currency) normalized.currency = currency;
+    if (pct) {
+      metrics['Total PnL %'] = pct;
+      normalized.total_pnl_percent = parseReportNumber(pct);
+    }
+  }
+
+  const drawdown = linesAfter(lines, 'Max drawdown', 3);
+  if (drawdown.length > 0) {
+    const amount = drawdown[0];
+    const currency = drawdown[1] && /^[A-Z]{3}$/.test(drawdown[1]) ? drawdown[1] : null;
+    const pct = drawdown.find(v => /%/.test(v));
+    metrics['Max drawdown'] = currency ? `${amount} ${currency}` : amount;
+    normalized.max_drawdown = parseReportNumber(amount);
+    if (pct) {
+      metrics['Max drawdown %'] = pct;
+      normalized.max_drawdown_percent = parseReportNumber(pct);
+    }
+  }
+
+  const profitable = linesAfter(lines, 'Profitable trades', 3);
+  if (profitable.length > 0) {
+    const pct = profitable.find(v => /%/.test(v));
+    const count = profitable.find(v => /^\d+\s*\/\s*\d+$/.test(v));
+    if (pct) {
+      metrics['Profitable trades'] = pct;
+      normalized.profitable_trades_percent = parseReportNumber(pct);
+    }
+    if (count) {
+      metrics['Profitable trades count'] = count;
+      const parts = count.split('/').map(v => Number(v.trim()));
+      normalized.winning_trades = parts[0];
+      normalized.total_trades = parts[1];
+    }
+  }
+
+  const profitFactor = firstMetricLine(lines, 'Profit factor');
+  if (profitFactor) {
+    metrics['Profit factor'] = profitFactor;
+    normalized.profit_factor = parseReportNumber(profitFactor);
+  }
+
+  const totalTradesIdx = lines.findIndex(line => line.toLowerCase() === 'total trades');
+  if (totalTradesIdx !== -1) {
+    const before = lines.slice(Math.max(0, totalTradesIdx - 3), totalTradesIdx).reverse();
+    const tradeCount = before.find(line => /^\d+$/.test(line));
+    if (tradeCount) {
+      metrics['Total trades'] = tradeCount;
+      normalized.total_trades = Number(tradeCount);
+    }
+  }
+
+  const winners = findAfterAny(lines, 'Winners', v => /\d+\s+trades/i.test(v), 3);
+  if (winners) {
+    metrics['Winners'] = winners;
+    normalized.winning_trades = parseReportNumber(winners);
+  }
+
+  const losers = findAfterAny(lines, 'Losers', v => /\d+\s+trades/i.test(v), 3);
+  if (losers) {
+    metrics['Losers'] = losers;
+    normalized.losing_trades = parseReportNumber(losers);
+  }
+
+  const expectedPayoff = linesAfter(lines, 'Expected payoff', 2);
+  if (expectedPayoff.length > 0) {
+    const amount = expectedPayoff[0];
+    const currency = expectedPayoff[1] && /^[A-Z]{3}$/.test(expectedPayoff[1]) ? expectedPayoff[1] : normalized.currency;
+    metrics['Expected payoff'] = currency ? `${amount} ${currency}` : amount;
+    normalized.expected_payoff = parseReportNumber(amount);
+  }
+
+  const averageLoss = firstMetricLine(lines, 'Average loss');
+  if (averageLoss) {
+    metrics['Average loss'] = averageLoss;
+    normalized.average_loss_percent = parseReportNumber(averageLoss);
+  }
+
+  const averageProfit = firstMetricLine(lines, 'Average profit');
+  if (averageProfit) {
+    metrics['Average profit'] = averageProfit;
+    normalized.average_profit_percent = parseReportNumber(averageProfit);
+  }
+
+  return {
+    metrics,
+    normalized,
+    metric_count: Object.keys(metrics).length,
+  };
+}
+
 function buildGraphicsJS(collectionName, mapKey, filter) {
   return `
     (function() {
@@ -161,7 +309,44 @@ export async function getStrategyResults() {
       } catch(e) { return {metrics: {}, source: 'internal_api', error: e.message}; }
     })()
   `);
-  return { success: true, metric_count: Object.keys(results?.metrics || {}).length, source: results?.source, metrics: results?.metrics || {}, error: results?.error };
+  if (results?.metrics && Object.keys(results.metrics).length > 0) {
+    return { success: true, metric_count: Object.keys(results.metrics).length, source: results.source, metrics: results.metrics };
+  }
+
+  const dom = await evaluate(`
+    (function() {
+      var panel = document.querySelector('[data-name="backtesting"]')
+        || document.querySelector('[class*="strategyReport"]')
+        || document.querySelector('[class*="backtesting"]')
+        || document.querySelector('[class*="bottom-widget"]');
+      var text = panel ? panel.innerText : document.body.innerText;
+      var hasStrategyReport = /Key stats|Total PnL|Max drawdown|Profit factor|Total trades/i.test(text || '');
+      return { text: text || '', panel_found: !!panel, has_strategy_report: hasStrategyReport };
+    })()
+  `);
+
+  const parsed = parseStrategyReportText(dom?.text || '');
+  if (parsed.metric_count > 0) {
+    return {
+      success: true,
+      metric_count: parsed.metric_count,
+      source: 'strategy_tester_dom',
+      metrics: parsed.metrics,
+      normalized: parsed.normalized,
+      panel_found: !!dom?.panel_found,
+      warning: results?.error,
+    };
+  }
+
+  return {
+    success: true,
+    metric_count: 0,
+    source: results?.source || 'strategy_tester_dom',
+    metrics: {},
+    normalized: {},
+    panel_found: !!dom?.panel_found,
+    error: results?.error || 'Strategy Tester metrics not found in internal API or DOM.',
+  };
 }
 
 export async function getTrades({ max_trades } = {}) {

@@ -24,6 +24,8 @@ timeframes: ["15"]
 action: "get_strategy_results"
 ```
 
+Rank results with `result.normalized` fields when present, especially `profit_factor`, `max_drawdown_percent`, `profitable_trades_percent`, `total_trades`, and `expected_payoff`. If `result.source` is `strategy_tester_dom`, the values were read from live Strategy Tester DOM text; screenshots are only needed for visual confirmation.
+
 ### For Screenshot Comparison
 Use `batch_run` with action `screenshot`:
 ```

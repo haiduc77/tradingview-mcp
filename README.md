@@ -226,6 +226,17 @@ Claude reads [`CLAUDE.md`](CLAUDE.md) automatically when working in this project
 | `quote_get` | Get latest price, OHLC, volume | ~200B |
 | `data_get_ohlcv` | Get price bars. **Use `summary: true`** for compact stats | 500B (summary) / 8KB (100 bars) |
 
+### Strategy Tester Data
+
+Use these after a Pine `strategy()` is added to the chart and the Strategy Tester panel is available. `data_get_strategy_results` first tries TradingView's internal strategy objects, then falls back to direct Strategy Tester DOM text extraction. The fallback returns both display strings and a `normalized` object with numeric fields suitable for ranking and batch analysis.
+
+| Tool | When to use | Notes |
+|------|-------------|-------|
+| `data_get_strategy_results` | Get net PnL, drawdown, win rate, profit factor, trade counts, expected payoff | Returns `source`; `strategy_tester_dom` means parsed from live DOM text, not screenshots |
+| `data_get_trades` | Get individual trades when TradingView exposes `ordersData()` internally | Availability depends on TradingView internals |
+| `data_get_equity` | Get equity curve or summary data when exposed internally | Availability depends on TradingView internals |
+| `batch_run` with `action: "get_strategy_results"` | Compare the active strategy across symbols/timeframes | Uses the same `data_get_strategy_results` extraction path |
+
 ### Custom Indicator Data (Pine Drawings)
 
 Read `line.new()`, `label.new()`, `table.new()`, `box.new()` output from any visible Pine indicator.
