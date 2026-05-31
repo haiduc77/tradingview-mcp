@@ -84,6 +84,31 @@ Use `study_filter` parameter to target a specific indicator by name substring (e
 - `tv_launch` → auto-detect and launch TradingView with CDP on Mac/Win/Linux
 - `tv_health_check` → verify connection is working
 
+## TradingView / MCP Restart Rule
+
+After changing MCP server code, or when TradingView/MCP state looks stale, stuck, disconnected, or inconsistent, run the full restart procedure before continuing:
+
+```cmd
+scripts\restart_tv_mcp_debug.bat 9222
+```
+
+This restarts both TradingView Desktop and the local MCP server process so new server code is loaded and old CDP sessions are cleared.
+
+After the restart, validate the connection:
+
+```cmd
+node src\cli\index.js status
+node src\cli\index.js data strategy
+```
+
+If the work involves strategy trade extraction, also validate:
+
+```cmd
+node src\cli\index.js data trades --max 3
+```
+
+Do not continue batch strategy testing until the relevant restart and validation checks pass.
+
 ## Context Management Rules
 
 These tools can return large payloads. Follow these rules to avoid context bloat:

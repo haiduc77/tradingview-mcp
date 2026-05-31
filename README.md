@@ -100,6 +100,15 @@ TradingView Desktop must be running with Chrome DevTools Protocol enabled on por
 scripts\launch_tv_debug.bat
 ```
 
+After changing MCP server code on Windows, prefer the full restart script so stale `node src/server.js` processes and old TradingView CDP sessions are cleared:
+
+```bash
+scripts\restart_tv_mcp_debug.bat
+```
+
+This stops existing TradingView MCP server processes, stops TradingView Desktop, starts TradingView with `--remote-debugging-port=9222`, starts a fresh local MCP server process, and prints a JSON validation summary.
+The default CDP wait timeout is 30 seconds.
+
 **Linux:**
 ```bash
 ./scripts/launch_tv_debug_linux.sh
