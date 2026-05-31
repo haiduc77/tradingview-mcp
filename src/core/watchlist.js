@@ -104,6 +104,22 @@ export async function getFull({ maxScrolls = 120, settleMs = 150, stalePasses = 
         return candidates.length ? candidates[0].el : null;
       }
 
+      function isNumberText(value) {
+        return /^[+\-−]?\d[\d.,]*$/.test(String(value || '').replace(/[\s\u00a0\u202f]/g, ''));
+      }
+
+      function isPercentText(value) {
+        return /^[+\-−]?\d[\d.,]*%$/.test(String(value || '').replace(/[\s\u00a0\u202f]/g, ''));
+      }
+
+      function cleanQuoteRow(row) {
+        if (!row) return null;
+        if (row.last && !isNumberText(row.last)) row.last = null;
+        if (row.change && !isNumberText(row.change)) row.change = null;
+        if (row.change_percent && !isPercentText(row.change_percent)) row.change_percent = null;
+        return row;
+      }
+
       function parseText(text) {
         var lines = String(text || '').split(/\\n+/).map(function(s) { return s.trim(); }).filter(Boolean);
         var rows = [];
@@ -112,13 +128,12 @@ export async function getFull({ maxScrolls = 120, settleMs = 150, stalePasses = 
           if (!/^[A-Z0-9]$/.test(lines[i])) continue;
           if (!/^[A-Z0-9.]{2,12}$/.test(symbol)) continue;
           if (lines[i + 2] !== 'D') continue;
-          if (!/^[+\\-−]?\\d/.test(lines[i + 3])) continue;
-          rows.push({
+          rows.push(cleanQuoteRow({
             symbol: symbol,
             last: lines[i + 3] || null,
             change: lines[i + 4] || null,
             change_percent: lines[i + 5] || null,
-          });
+          }));
           i += 5;
         }
         return rows;
@@ -171,6 +186,7 @@ export async function getFull({ maxScrolls = 120, settleMs = 150, stalePasses = 
           if (!row.symbol) continue;
           var key = rowKey(row);
           if (!key) continue;
+          row = cleanQuoteRow(row);
           if (!byKey[key]) {
             byKey[key] = Object.assign({ ticker: key }, row);
             ordered.push(key);
