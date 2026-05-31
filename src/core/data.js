@@ -156,6 +156,105 @@ export function parseStrategyReportText(text) {
   };
 }
 
+function cleanReportLine(value) {
+  return String(value || '')
+    .replace(/[\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(/\u2212/g, '-')
+    .replace(/\u00a0|\u202f/g, ' ')
+    .trim();
+}
+
+function parseTradeNumberAndDirection(value) {
+  const match = cleanReportLine(value).match(/^(\d+)\s*(long|short)$/i);
+  if (!match) return {};
+  return {
+    trade_number: Number(match[1]),
+    direction: match[2].toLowerCase(),
+  };
+}
+
+function parseReportAmount(value) {
+  const cleaned = cleanReportLine(value).replace(/,/g, '');
+  const match = cleaned.match(/[+-]?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
+}
+
+function amountWithCurrency(lines, index) {
+  return {
+    value: parseReportAmount(lines[index]),
+    currency: /^[A-Z]{3,4}$/.test(lines[index + 1] || '') ? lines[index + 1] : null,
+    percent: /%$/.test(lines[index + 2] || '') ? parseReportAmount(lines[index + 2]) : null,
+  };
+}
+
+export function parseStrategyTradesText(text, { max_trades } = {}) {
+  const limit = Math.min(max_trades || MAX_TRADES, MAX_TRADES);
+  const lines = String(text || '')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map(cleanReportLine)
+    .filter(Boolean);
+
+  const rowStarts = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\d+\s*(long|short)$/i.test(lines[i])) rowStarts.push(i);
+  }
+
+  const trades = [];
+  for (let r = 0; r < rowStarts.length && trades.length < limit; r++) {
+    const start = rowStarts[r];
+    const end = rowStarts[r + 1] || lines.length;
+    const row = lines.slice(start, end);
+    if (row.length < 20) continue;
+
+    const id = parseTradeNumberAndDirection(row[0]);
+    if (id.trade_number == null) continue;
+
+    const priceIndex = 7;
+    const sizeIndex = 11;
+    const netPnlIndex = 13;
+    const favorableIndex = 16;
+    const adverseIndex = 19;
+    const cumulativeIndex = 22;
+
+    const trade = {
+      ...id,
+      exit_type: row[1] || null,
+      entry_type: row[2] || null,
+      exit_date: row[3] || null,
+      entry_date: row[4] || null,
+      exit_signal: row[5] || null,
+      entry_signal: row[6] || null,
+      exit_price: parseReportAmount(row[priceIndex]),
+      exit_price_currency: /^[A-Z]{3,4}$/.test(row[priceIndex + 1] || '') ? row[priceIndex + 1] : null,
+      entry_price: parseReportAmount(row[priceIndex + 2]),
+      entry_price_currency: /^[A-Z]{3,4}$/.test(row[priceIndex + 3] || '') ? row[priceIndex + 3] : null,
+      size: parseReportAmount(row[sizeIndex]),
+      size_value: row[sizeIndex + 1] || null,
+      net_pnl: amountWithCurrency(row, netPnlIndex).value,
+      net_pnl_currency: amountWithCurrency(row, netPnlIndex).currency,
+      net_pnl_percent: amountWithCurrency(row, netPnlIndex).percent,
+      favorable_excursion: amountWithCurrency(row, favorableIndex).value,
+      favorable_excursion_currency: amountWithCurrency(row, favorableIndex).currency,
+      favorable_excursion_percent: amountWithCurrency(row, favorableIndex).percent,
+      adverse_excursion: amountWithCurrency(row, adverseIndex).value,
+      adverse_excursion_currency: amountWithCurrency(row, adverseIndex).currency,
+      adverse_excursion_percent: amountWithCurrency(row, adverseIndex).percent,
+      cumulative_pnl: amountWithCurrency(row, cumulativeIndex).value,
+      cumulative_pnl_currency: amountWithCurrency(row, cumulativeIndex).currency,
+      cumulative_pnl_percent: amountWithCurrency(row, cumulativeIndex).percent,
+      raw: row,
+    };
+
+    trades.push(trade);
+  }
+
+  return {
+    trades: trades.sort((a, b) => (b.trade_number || 0) - (a.trade_number || 0)),
+    trade_count: trades.length,
+  };
+}
+
 function buildGraphicsJS(collectionName, mapKey, filter) {
   return `
     (function() {
@@ -383,7 +482,87 @@ export async function getTrades({ max_trades } = {}) {
       } catch(e) { return {trades: [], source: 'internal_api', error: e.message}; }
     })()
   `);
-  return { success: true, trade_count: trades?.trades?.length || 0, source: trades?.source, trades: trades?.trades || [], error: trades?.error };
+  if (trades?.trades?.length > 0) {
+    return { success: true, trade_count: trades.trades.length, source: trades.source, trades: trades.trades };
+  }
+
+  const dom = await evaluateAsync(`
+    (async function() {
+      function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
+      var report = document.querySelector('.backtestingReport-qyUx4U7K')
+        || document.querySelector('.bottom-widgetbar-content.backtesting')
+        || document.querySelector('[class*="backtestingReport"]')
+        || document.querySelector('[class*="backtesting"]');
+      if (!report) return { rows: [], text: '', source: 'strategy_tester_dom', error: 'Strategy Tester report DOM not found.' };
+
+      var listTab = report.querySelector('[data-name="light-tab-1"]');
+      if (listTab) {
+        listTab.click();
+        await sleep(250);
+        report = document.querySelector('.backtestingReport-qyUx4U7K')
+          || document.querySelector('.bottom-widgetbar-content.backtesting')
+          || report;
+      }
+
+      var seen = {};
+      var rows = [];
+      function addRows() {
+        var candidates = report.querySelectorAll('tr');
+        for (var i = 0; i < candidates.length; i++) {
+          var text = (candidates[i].innerText || candidates[i].textContent || '').trim();
+          if (!/^\\d+\\s*(long|short)/i.test(text)) continue;
+          if (seen[text]) continue;
+          seen[text] = true;
+          rows.push(text);
+          if (rows.length >= ${limit}) return;
+        }
+      }
+
+      addRows();
+      var scrollers = Array.prototype.slice.call(report.querySelectorAll('*'))
+        .filter(function(el) { return el.scrollHeight > el.clientHeight + 20 && el.clientHeight > 50; })
+        .sort(function(a, b) { return (b.clientHeight * b.clientWidth) - (a.clientHeight * a.clientWidth); });
+      var scroller = scrollers[0] || report;
+      if (rows.length < ${limit} && scroller && scroller.scrollTo) {
+        try { scroller.scrollTo(0, 0); } catch(e) { scroller.scrollTop = 0; }
+        await sleep(100);
+        addRows();
+        for (var step = 0; step < 50 && rows.length < ${limit}; step++) {
+          var before = scroller.scrollTop || 0;
+          try { scroller.scrollTo(0, before + Math.max(80, scroller.clientHeight * 0.8)); } catch(e) { scroller.scrollTop = before + Math.max(80, scroller.clientHeight * 0.8); }
+          await sleep(80);
+          addRows();
+          var after = scroller.scrollTop || 0;
+          if (after === before || after + scroller.clientHeight >= scroller.scrollHeight - 2) {
+            addRows();
+            break;
+          }
+        }
+      }
+
+      var text = rows.length > 0 ? rows.join('\\n\\n') : (report.innerText || '');
+      return {
+        rows: rows,
+        text: text,
+        source: 'strategy_tester_dom',
+        list_tab_found: !!listTab,
+        row_count: rows.length,
+        scroller_found: !!scroller
+      };
+    })()
+  `);
+
+  const parsed = parseStrategyTradesText(dom?.text || '', { max_trades: limit });
+  return {
+    success: true,
+    trade_count: parsed.trade_count,
+    source: parsed.trade_count > 0 ? 'strategy_tester_dom' : (trades?.source || dom?.source),
+    trades: parsed.trades,
+    list_tab_found: !!dom?.list_tab_found,
+    dom_row_count: dom?.row_count || 0,
+    internal_api_error: trades?.error,
+    error: parsed.trade_count > 0 ? undefined : (trades?.error || dom?.error || 'Strategy Tester trade list not found.'),
+  };
 }
 
 export async function getEquity() {

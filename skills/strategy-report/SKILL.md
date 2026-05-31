@@ -11,7 +11,7 @@ You are generating a detailed performance report for a Pine Script strategy on T
 
 Collect all available performance data:
 1. `data_get_strategy_results` — overall metrics (net profit, win rate, profit factor, etc.). Prefer the `normalized` numeric fields for calculations/ranking; `source: "strategy_tester_dom"` means the data came from live Strategy Tester DOM text, not a screenshot.
-2. `data_get_trades` — individual trade list (max 20)
+2. `data_get_trades` — individual trade list (max 20). It may return `source: "strategy_tester_dom"` when TradingView internals do not expose orders; in that case it switches to the Strategy Tester `List of trades` tab and parses visible/scrolled DOM rows.
 3. `data_get_equity` — equity curve data points
 4. `chart_get_state` — current symbol, timeframe, and studies on chart
 5. `symbol_info` — symbol metadata for context

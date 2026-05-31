@@ -233,7 +233,7 @@ Use these after a Pine `strategy()` is added to the chart and the Strategy Teste
 | Tool | When to use | Notes |
 |------|-------------|-------|
 | `data_get_strategy_results` | Get net PnL, drawdown, win rate, profit factor, trade counts, expected payoff | Returns `source`; `strategy_tester_dom` means parsed from live DOM text, not screenshots |
-| `data_get_trades` | Get individual trades when TradingView exposes `ordersData()` internally | Availability depends on TradingView internals |
+| `data_get_trades` | Get individual trades from Strategy Tester | Tries TradingView internals first, then switches the Strategy Tester report to `List of trades` and parses DOM rows |
 | `data_get_equity` | Get equity curve or summary data when exposed internally | Availability depends on TradingView internals |
 | `batch_run` with `action: "get_strategy_results"` | Compare the active strategy across symbols/timeframes | Uses the same `data_get_strategy_results` extraction path |
 
