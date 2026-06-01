@@ -34,28 +34,65 @@ export async function openPanel({ panel, action }) {
     const widgetName = panel === 'pine-editor' ? 'pine-editor' : 'backtesting';
     const result = await evaluate(`
       (function() {
+        function findMonaco() {
+          return document.querySelector('.monaco-editor.pine-editor-monaco');
+        }
+        function clickPineButton() {
+          var btn = document.querySelector('[data-name="pine-dialog-button"]')
+            || document.querySelector('[aria-label="Pine"]');
+          if (btn && btn.offsetParent !== null) {
+            btn.click();
+            return true;
+          }
+          return false;
+        }
         var bwb = window.TradingView && window.TradingView.bottomWidgetBar;
-        if (!bwb) return { error: 'bottomWidgetBar not available' };
         var panel = ${JSON.stringify(panel)};
         var widgetName = ${JSON.stringify(widgetName)};
         var action = ${JSON.stringify(action)};
         var bottomArea = document.querySelector('[class*="layout__area--bottom"]');
         var isOpen = !!(bottomArea && bottomArea.offsetHeight > 50);
-        if (panel === 'pine-editor') { var monacoEl = document.querySelector('.monaco-editor.pine-editor-monaco'); isOpen = isOpen && !!monacoEl; }
+        if (panel === 'pine-editor') { var monacoEl = findMonaco(); isOpen = !!monacoEl && monacoEl.offsetParent !== null; }
         if (panel === 'strategy-tester') { var stratPanel = document.querySelector('[data-name="backtesting"]') || document.querySelector('[class*="strategyReport"]'); isOpen = isOpen && !!(stratPanel && stratPanel.offsetParent); }
         var performed = 'none';
         if (action === 'open' || (action === 'toggle' && !isOpen)) {
-          if (panel === 'pine-editor') { if (typeof bwb.activateScriptEditorTab === 'function') bwb.activateScriptEditorTab(); else if (typeof bwb.showWidget === 'function') bwb.showWidget(widgetName); }
-          else { if (typeof bwb.showWidget === 'function') bwb.showWidget(widgetName); }
-          performed = 'opened';
+          if (panel === 'pine-editor') {
+            if (clickPineButton()) performed = 'opened_via_pine_button';
+            else if (bwb && typeof bwb.activateScriptEditorTab === 'function') { bwb.activateScriptEditorTab(); performed = 'opened_via_activateScriptEditorTab'; }
+            else if (bwb && typeof bwb.showWidget === 'function') { bwb.showWidget(widgetName); performed = 'opened_via_showWidget'; }
+            else if (bwb && typeof bwb.open === 'function') { bwb.open(widgetName); performed = 'opened_via_open'; }
+            else return { error: 'Pine Editor button and bottomWidgetBar opener not available' };
+          }
+          else {
+            if (!bwb) return { error: 'bottomWidgetBar not available' };
+            if (typeof bwb.showWidget === 'function') bwb.showWidget(widgetName);
+            else if (typeof bwb.open === 'function') bwb.open(widgetName);
+            performed = 'opened';
+          }
         } else if (action === 'close' || (action === 'toggle' && isOpen)) {
-          if (typeof bwb.hideWidget === 'function') bwb.hideWidget(widgetName);
-          performed = 'closed';
+          if (panel === 'pine-editor' && clickPineButton()) performed = 'closed_via_pine_button';
+          else if (bwb && typeof bwb.hideWidget === 'function') { bwb.hideWidget(widgetName); performed = 'closed'; }
+          else if (bwb && typeof bwb.hide === 'function') { bwb.hide(widgetName); performed = 'closed'; }
+          else return { error: 'Panel close control not available' };
         }
         return { was_open: isOpen, performed: performed };
       })()
     `);
     if (result && result.error) throw new Error(result.error);
+    if (panel === 'pine-editor' && (action === 'open' || action === 'toggle')) {
+      let editorReady = false;
+      for (let i = 0; i < 40; i++) {
+        editorReady = await evaluate(`
+          (function() {
+            var el = document.querySelector('.monaco-editor.pine-editor-monaco');
+            return !!(el && el.offsetParent !== null);
+          })()
+        `);
+        if (editorReady) break;
+        await new Promise(r => setTimeout(r, 200));
+      }
+      return { success: true, panel, action, was_open: result?.was_open ?? false, performed: result?.performed ?? 'unknown', editor_ready: editorReady };
+    }
     return { success: true, panel, action, was_open: result?.was_open ?? false, performed: result?.performed ?? 'unknown' };
   } else {
     const selectorMap = {

@@ -35,6 +35,46 @@ const FIND_MONACO = `
   })()
 `;
 
+const PINE_EDITOR_OPEN_ATTEMPT = `
+  (function openPineEditorAttempt() {
+    var m = ${FIND_MONACO};
+    if (m) return { opened: true, method: 'already_open' };
+
+    var pineButton = document.querySelector('[data-name="pine-dialog-button"]')
+      || document.querySelector('[aria-label="Pine"]');
+    if (pineButton && pineButton.offsetParent !== null) {
+      pineButton.click();
+      return { opened: true, method: 'pine_button' };
+    }
+
+    var bwb = window.TradingView && window.TradingView.bottomWidgetBar;
+    if (bwb) {
+      try {
+        if (typeof bwb.activateScriptEditorTab === 'function') {
+          bwb.activateScriptEditorTab();
+          return { opened: true, method: 'activateScriptEditorTab' };
+        }
+        if (typeof bwb.showWidget === 'function') {
+          bwb.showWidget('pine-editor');
+          return { opened: true, method: 'showWidget' };
+        }
+        if (typeof bwb.open === 'function') {
+          bwb.open('pine-editor');
+          return { opened: true, method: 'open' };
+        }
+        if (typeof bwb.show === 'function') {
+          bwb.show('pine-editor');
+          return { opened: true, method: 'show' };
+        }
+      } catch (e) {
+        return { opened: false, method: 'bottomWidgetBar', error: e.message };
+      }
+    }
+
+    return { opened: false, method: 'not_found' };
+  })()
+`;
+
 /**
  * Opens the Pine Editor panel and waits for Monaco to become available.
  * Returns true if editor is accessible, false on timeout.
@@ -48,27 +88,16 @@ export async function ensurePineEditorOpen() {
   `);
   if (already) return true;
 
-  await evaluate(`
-    (function() {
-      var bwb = window.TradingView && window.TradingView.bottomWidgetBar;
-      if (!bwb) return;
-      if (typeof bwb.activateScriptEditorTab === 'function') bwb.activateScriptEditorTab();
-      else if (typeof bwb.showWidget === 'function') bwb.showWidget('pine-editor');
-    })()
-  `);
+  await evaluate(PINE_EDITOR_OPEN_ATTEMPT);
 
-  await evaluate(`
-    (function() {
-      var btn = document.querySelector('[aria-label="Pine"]')
-        || document.querySelector('[data-name="pine-dialog-button"]');
-      if (btn) btn.click();
-    })()
-  `);
-
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 200));
     const ready = await evaluate(`(function() { return ${FIND_MONACO} !== null; })()`);
     if (ready) return true;
+
+    if (i === 10 || i === 25) {
+      await evaluate(PINE_EDITOR_OPEN_ATTEMPT);
+    }
   }
   return false;
 }
